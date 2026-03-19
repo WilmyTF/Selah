@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galería de Gala</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Navbar fija oscura -->
+    <nav class="top-navbar">
+        <div class="navbar-brand" id="brandLogo">
+            <img src="imagen/icon pagprin.png" alt="Galería Gala" class="brand-logo">
+        </div>
+        <div class="navbar-center">
+           <!-- <div class="navbar-title-row">
+                <img src="imagen/icon pagprin.png" alt="" class="title-deco">
+                          </div> 
+            <p class="navbar-subtitle">Selah &ndash; Un momento de pausa y reflexi&oacute;n para disfrutar la riqueza del cacao</p>-->
+        </div>
+        <div class="navbar-links">
+            <button class="nav-link active" data-category="home">Inicio</button>
+            <button class="nav-link" data-category="fotos">Fotos</button>
+            <button class="nav-link" data-category="videos">Videos</button>
+        </div>
+    </nav>
+    <div class="page-wrapper">
+        <div id="content">
+
+            <!-- Hero Carousel -->
+            <section id="heroSection" class="hero-section">
+                <div class="carousel-container">
+                    <div class="carousel-track" id="carouselTrack">
+                        <div class="carousel-placeholder">
+                            <div class="carousel-loading-icon">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                                    <circle cx="12" cy="13" r="4"/>
+                                </svg>
+                            </div>
+                            <p>Cargando galería...</p>
+                        </div>
+                    </div>
+                    <button class="carousel-btn carousel-prev" id="carouselPrev">&#8249;</button>
+                    <button class="carousel-btn carousel-next" id="carouselNext">&#8250;</button>
+                    <div class="carousel-dots" id="carouselDots"></div>
+                </div>
+            </section>
+
+            <div class="container">
+            <div id="homeView" class="view-container">
+                <div class="category-cards">
+                    <div class="category-card" data-navigate="fotos">
+                        <div class="category-icon"><img src="imagen/imagen icon.png" alt="Fotos"></div>
+                        <h3>Fotos</h3>
+                        <p></p>
+                    </div>
+                    <div class="category-card" data-navigate="videos">
+                        <div class="category-icon"><img src="imagen/video icon.png" alt="Videos"></div>
+                        <h3>Videos</h3>
+                        <p></p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="fotosView" class="view-container" style="display: none;">
+                <div class="breadcrumb">
+                    <button class="btn-back" data-back="home">← Inicio</button>
+                    <span id="fotosPath">Fotos</span>
+                </div>
+                <div class="subcategory-grid">
+                </div>
+                <div id="fotosMediaGrid" class="media-grid"></div>
+            </div>
+
+            <div id="videosView" class="view-container" style="display: none;">
+                <div class="breadcrumb">
+                    <button class="btn-back" data-back="home">← Inicio</button>
+                    <span id="videosPath">Videos</span>
+                </div>
+                <div class="subcategory-grid">
+                </div>
+                <div id="videosMediaGrid" class="media-grid"></div>
+            </div>
+
+            </div> <!-- /container -->
+        </div>
+
+        <div id="loadingSpinner" class="loading-spinner" style="display: none;">
+            <div class="spinner"></div>
+            <p>Cargando...</p>
+        </div>
+    </div>
+
+    <!-- Modal para visualización de medios -->
+    <div id="mediaModal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <button class="modal-close" id="closeModal">&times;</button>
+            <div class="modal-body">
+                <img id="modalImage" class="modal-image" style="display: none;" alt="Imagen">
+                <div id="modalVideo" class="modal-video-container" style="display: none; width: 100%; min-height: 50vh;"></div>
+            </div>
+            <div class="modal-footer">
+                <h3 id="modalTitle" class="modal-title"></h3>
+            </div>
+        </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
