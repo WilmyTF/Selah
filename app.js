@@ -13,6 +13,8 @@ let carouselTimer = null;
 let fotosBackgroundImages = [];
 let fotosBackgroundIndex = 0;
 let fotosBackgroundTimer = null;
+let revistaOrderedFiles = [];
+let currentRevistaIndex = -1;
 
 const content = document.getElementById('content');
 const loadingSpinner = document.getElementById('loadingSpinner');
@@ -22,9 +24,27 @@ const modalVideo = document.getElementById('modalVideo');
 const modalTitle = document.getElementById('modalTitle');
 const closeModal = document.getElementById('closeModal');
 
+const revistaModal = document.getElementById('revistaModal');
+const revistaModalImg = document.getElementById('revistaModalImg');
+const revistaPageCounter = document.getElementById('revistaPageCounter');
+const revistaZonaPrev = document.getElementById('revistaZonaPrev');
+const revistaZonaNext = document.getElementById('revistaZonaNext');
+const revistaModalClose = document.getElementById('revistaModalClose');
+
+const nosotrosModal = document.getElementById('nosotrosModal');
+const nosotrosBtn = document.getElementById('nosotrosBtn');
+const nosotrosClose = document.getElementById('nosotrosClose');
+const nosotrosOverlay = document.getElementById('nosotrosOverlay');
+
+const hamburgerBtn = document.getElementById('hamburgerBtn');
+const mobileMenu = document.getElementById('mobileMenu');
+const mobileMenuBg = document.getElementById('mobileMenuBg');
+const mobileMenuClose = document.getElementById('mobileMenuClose');
+
 const homeView = document.getElementById('homeView');
 const fotosView = document.getElementById('fotosView');
 const videosView = document.getElementById('videosView');
+const revistaView = document.getElementById('revistaView');
 const fotosMediaGrid = document.getElementById('fotosMediaGrid');
 const videosMediaGrid = document.getElementById('videosMediaGrid');
 
@@ -33,6 +53,10 @@ const FOTOS_FOLDER_ALIASES = {
     editada: ['editada', 'editadas'],
     sinEditar: ['sin-editar', 'sineditar', 'sin-editaras', 'sin-edicion', 'sin-edicionar']
 };
+
+const REVISTA_FOLDER_ALIASES = ['revista', 'revista-digital'];
+
+const INTRO_FOLDER_ALIASES = ['introduccion', 'intro', 'introduccion-selah', 'presentacion', 'bienvenida', 'opening'];
 
 async function initializeGapiClient() {
     await gapi.client.init({
@@ -44,6 +68,31 @@ async function initializeGapiClient() {
     initializeLazyLoading();
     await loadFolderStructure();
     showView('home');
+}
+
+async function initializeRevistaLanding() {
+    if (revistaOrderedFiles.length > 0) {
+        openRevistaReader(0);
+        return;
+    }
+
+    if (!FOLDER_CONFIG.revista.folderId) {
+        showView('home');
+        return;
+    }
+
+    showLoading(true);
+
+    try {
+        const files = await collectMediaFilesRecursively(FOLDER_CONFIG.revista.folderId);
+        revistaOrderedFiles = orderRevistaFiles(files);
+        openRevistaReader(0);
+    } catch (error) {
+        console.error('Error loading revista:', error);
+        showView('home');
+    }
+
+    showLoading(false);
 }
 
 function normalizeFolderName(name = '') {
@@ -60,6 +109,173 @@ function normalizeFolderName(name = '') {
 function isMatchingAlias(name, aliases = []) {
     const normalized = normalizeFolderName(name);
     return aliases.some(alias => normalized === normalizeFolderName(alias));
+}
+
+function stripFileExtension(name = '') {
+    return name.replace(/\.[^.]+$/, '');
+}
+
+function normalizeFileBaseName(name = '') {
+    return normalizeFolderName(stripFileExtension(name));
+}
+
+function extractPageNumberFromName(name = '') {
+    const normalized = normalizeFileBaseName(name);
+    const match = normalized.match(/(?:^|\D)(\d+)(?:\D|$)/);
+    return match ? Number(match[1]) : null;
+}
+
+function getPublicidadOrder(name = '') {
+    const normalized = normalizeFileBaseName(name);
+    const match = normalized.match(/publicidad(?:-\((\d+)\))?$/);
+    if (!match) return Number.MAX_SAFE_INTEGER;
+    return match[1] ? Number(match[1]) : 1;
+}
+
+function findAndUseFile(files, usedIds, aliases = []) {
+    const found = files.find(file => {
+        if (usedIds.has(file.id)) return false;
+        const normalized = normalizeFileBaseName(file.name);
+        return aliases.some(alias => normalized === normalizeFolderName(alias));
+    });
+
+    if (!found) return null;
+    usedIds.add(found.id);
+    return found;
+}
+
+function orderRevistaFiles(files = []) {
+    const imageFiles = files.filter(file => file.mimeType && file.mimeType.startsWith('image/'));
+    const usedIds = new Set();
+    const ordered = [];
+
+    const portada = findAndUseFile(imageFiles, usedIds, ['portada']);
+    const pageTwo = findAndUseFile(imageFiles, usedIds, ['2']);
+    const indice = findAndUseFile(imageFiles, usedIds, ['indice']);
+    const creditos = findAndUseFile(imageFiles, usedIds, ['creditos']);
+    const cartaGrupo = findAndUseFile(imageFiles, usedIds, ['carta-del-grupo', 'carta grupo']);
+    const ultimaPagina = findAndUseFile(imageFiles, usedIds, ['ultima-pagina', 'ultima pagina']);
+
+    [portada, pageTwo, indice, creditos, cartaGrupo].forEach(file => {
+        if (file) ordered.push(file);
+    });
+
+    const remaining = imageFiles.filter(file => !usedIds.has(file.id));
+    const publicidadPages = remaining
+        .filter(file => normalizeFileBaseName(file.name).startsWith('publicidad'))
+        .sort((a, b) => getPublicidadOrder(a.name) - getPublicidadOrder(b.name));
+
+    const numericPages = remaining
+        .filter(file => !normalizeFileBaseName(file.name).startsWith('publicidad'))
+        .map(file => ({ file, page: extractPageNumberFromName(file.name) }))
+        .filter(item => item.page !== null)
+        .sort((a, b) => a.page - b.page);
+
+    const otherPages = remaining
+        .filter(file => !normalizeFileBaseName(file.name).startsWith('publicidad'))
+        .filter(file => extractPageNumberFromName(file.name) === null)
+        .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+    if (publicidadPages.length > 0) {
+        ordered.push(publicidadPages.shift());
+    }
+
+    let previousPage = pageTwo ? 2 : null;
+    numericPages.forEach(item => {
+        if (previousPage !== null && item.page > previousPage + 1) {
+            const gap = item.page - previousPage - 1;
+            for (let i = 0; i < gap && publicidadPages.length > 0; i++) {
+                ordered.push(publicidadPages.shift());
+            }
+        }
+
+        ordered.push(item.file);
+        previousPage = item.page;
+    });
+
+    while (publicidadPages.length > 0) {
+        ordered.push(publicidadPages.shift());
+    }
+
+    ordered.push(...otherPages);
+
+    if (ultimaPagina) {
+        ordered.push(ultimaPagina);
+    }
+
+    return ordered;
+}
+
+function getRevistaThumbnailUrl(file) {
+    if (file.thumbnailLink) {
+        return file.thumbnailLink.replace(/=s\d+/, '=s2048');
+    }
+    return `https://drive.google.com/thumbnail?id=${file.id}&sz=w2048`;
+}
+
+function preloadRevistaPage(index) {
+    if (index < 0 || index >= revistaOrderedFiles.length) return;
+    const img = new Image();
+    img.src = getRevistaThumbnailUrl(revistaOrderedFiles[index]);
+}
+
+function openRevistaReader(index) {
+    if (!revistaOrderedFiles.length) return;
+    currentRevistaIndex = Math.max(0, Math.min(index, revistaOrderedFiles.length - 1));
+    const file = revistaOrderedFiles[currentRevistaIndex];
+
+    revistaModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    revistaModal.classList.add('loading');
+
+    revistaModalImg.style.opacity = '0';
+    revistaModalImg.onload = () => {
+        revistaModalImg.style.opacity = '1';
+        revistaModal.classList.remove('loading');
+        preloadRevistaPage(currentRevistaIndex + 1);
+        preloadRevistaPage(currentRevistaIndex - 1);
+    };
+    revistaModalImg.onerror = () => {
+        revistaModal.classList.remove('loading');
+    };
+    revistaModalImg.src = getRevistaThumbnailUrl(file);
+
+    updateRevistaReaderState();
+}
+
+function updateRevistaReaderState() {
+    const total = revistaOrderedFiles.length;
+    revistaPageCounter.textContent = `${currentRevistaIndex + 1} / ${total}`;
+
+    if (currentRevistaIndex <= 0) {
+        revistaZonaPrev.classList.add('disabled');
+    } else {
+        revistaZonaPrev.classList.remove('disabled');
+    }
+
+    if (currentRevistaIndex >= total - 1) {
+        revistaZonaNext.classList.add('disabled');
+    } else {
+        revistaZonaNext.classList.remove('disabled');
+    }
+}
+
+function closeRevistaReader() {
+    revistaModal.classList.remove('active');
+    revistaModalImg.src = '';
+    document.body.style.overflow = 'auto';
+    currentRevistaIndex = -1;
+    showView('home');
+}
+
+function goToPreviousRevistaPage() {
+    if (currentRevistaIndex <= 0) return;
+    openRevistaReader(currentRevistaIndex - 1);
+}
+
+function goToNextRevistaPage() {
+    if (currentRevistaIndex >= revistaOrderedFiles.length - 1) return;
+    openRevistaReader(currentRevistaIndex + 1);
 }
 
 function setFotosPath(pathLabel) {
@@ -273,13 +489,25 @@ async function loadFolderStructure() {
         const folders = response.result.files;
 
         for (const folder of folders) {
-            const folderName = folder.name.toLowerCase();
-            if (folderName === 'fotos') {
+            const normalizedFolderName = normalizeFolderName(folder.name);
+            if (normalizedFolderName === 'fotos') {
                 FOLDER_CONFIG.fotos.folderId = folder.id;
                 await loadSubcategories('fotos', folder.id);
-            } else if (folderName === 'videos') {
+            } else if (normalizedFolderName === 'videos') {
                 FOLDER_CONFIG.videos.folderId = folder.id;
                 await loadSubcategories('videos', folder.id);
+            } else if (
+                isMatchingAlias(folder.name, REVISTA_FOLDER_ALIASES)
+                || normalizedFolderName.startsWith('revista-')
+            ) {
+                FOLDER_CONFIG.revista.folderId = folder.id;
+            }
+        }
+
+        if (!FOLDER_CONFIG.revista.folderId) {
+            const revistaFallback = folders.find(folder => normalizeFolderName(folder.name).includes('revista'));
+            if (revistaFallback) {
+                FOLDER_CONFIG.revista.folderId = revistaFallback.id;
             }
         }
     } catch (error) {
@@ -452,9 +680,17 @@ function showSubfolders(category, parentKey, subfolders, parentFolderId) {
         <div class="folder-icon"></div>
         <div class="folder-name">← Volver</div>
     `;
-    backCard.addEventListener('click', () => {
+    backCard.addEventListener('click', async () => {
         updateSubcategoryUI(category);
-        mediaGrid.innerHTML = '';
+
+        if (parentFolderId) {
+            if (category === 'fotos') {
+                setFotosPath(`Fotos / ${parentKey}`);
+            }
+            await loadMediaFromFolder(category, parentFolderId, parentKey);
+        } else {
+            mediaGrid.innerHTML = '';
+        }
     });
     subcategoryGrid.appendChild(backCard);
     
@@ -508,9 +744,19 @@ async function collectMediaFilesRecursively(folderId, visited = new Set()) {
     return files.concat(...nestedCollections);
 }
 
+function getMediaGridByCategory(category) {
+    if (category === 'fotos') return fotosMediaGrid;
+    if (category === 'videos') return videosMediaGrid;
+    return null;
+}
+
 async function loadMediaFromFolderRecursive(category, folderId) {
     showLoading(true);
-    const targetGrid = category === 'fotos' ? fotosMediaGrid : videosMediaGrid;
+    const targetGrid = getMediaGridByCategory(category);
+    if (!targetGrid) {
+        showLoading(false);
+        return;
+    }
     targetGrid.innerHTML = '';
 
     try {
@@ -534,7 +780,11 @@ async function loadMediaFromFolderRecursive(category, folderId) {
 
 async function loadMediaFromFolder(category, folderId, folderName) {
     showLoading(true);
-    const targetGrid = category === 'fotos' ? fotosMediaGrid : videosMediaGrid;
+    const targetGrid = getMediaGridByCategory(category);
+    if (!targetGrid) {
+        showLoading(false);
+        return;
+    }
     targetGrid.innerHTML = '';
 
     try {
@@ -590,9 +840,17 @@ function initializeLazyLoading() {
 }
 
 function showView(view) {
+    if (view === 'revista') {
+        currentCategory = 'revista';
+        setActiveNavLink('revista');
+        initializeRevistaLanding();
+        return;
+    }
+
     homeView.style.display = 'none';
     fotosView.style.display = 'none';
     videosView.style.display = 'none';
+    revistaView.style.display = 'none';
 
     const heroSection = document.getElementById('heroSection');
 
@@ -609,16 +867,48 @@ function showView(view) {
             fotosView.style.display = 'block';
             initializeFotosLanding();
         }
-        else if (view === 'videos') videosView.style.display = 'block';
+        else if (view === 'videos') {
+            videosView.style.display = 'block';
+            tryPlayVideosIntro();
+        }
     }
 
     currentCategory = view;
     setActiveNavLink(view);
 }
 
+async function tryPlayVideosIntro() {
+    const subcats = FOLDER_CONFIG.videos?.subcategories;
+    if (!subcats || Object.keys(subcats).length === 0) return;
+
+    const introEntry = Object.entries(subcats).find(([key]) =>
+        INTRO_FOLDER_ALIASES.some(alias => key === alias || key.startsWith(alias))
+    );
+    if (!introEntry) return;
+
+    const [, folder] = introEntry;
+    try {
+        const response = await gapi.client.drive.files.list({
+            q: `'${folder.folderId}' in parents and trashed=false and mimeType contains 'video/'`,
+            fields: 'files(id, name, mimeType)',
+            pageSize: 5,
+            orderBy: 'name'
+        });
+        const videos = response.result.files;
+        if (!videos || videos.length === 0) return;
+        openMediaModal(videos[0]);
+    } catch (e) {
+        console.error('Error loading intro video:', e);
+    }
+}
+
 async function loadCategoryMedia(category, subcategory) {
     showLoading(true);
-    const targetGrid = category === 'fotos' ? fotosMediaGrid : videosMediaGrid;
+    const targetGrid = getMediaGridByCategory(category);
+    if (!targetGrid) {
+        showLoading(false);
+        return;
+    }
     targetGrid.innerHTML = '';
 
     let folderId;
@@ -684,7 +974,7 @@ async function loadMediaProgressively(files, targetGrid) {
 }
 
 
-function createMediaCard(file, mediaNumber) {
+function createMediaCard(file, mediaNumber, onClickHandler = null) {
     const card = document.createElement('div');
     card.className = 'media-card';
     
@@ -717,6 +1007,10 @@ function createMediaCard(file, mediaNumber) {
     }
     
     card.addEventListener('click', () => {
+        if (typeof onClickHandler === 'function') {
+            onClickHandler(file);
+            return;
+        }
         openMediaModal(file);
     });
     
@@ -731,13 +1025,23 @@ async function openMediaModal(file) {
     document.body.style.overflow = 'hidden';
     
     if (isVideo) {
+        modal.classList.add('video-mode');
         modalImage.style.display = 'none';
-        modalVideo.style.display = 'block';
+        modalVideo.style.display = 'flex';
         
-        // Solución Video: Insertamos el iframe dentro del nuevo DIV
         const videoUrl = `https://drive.google.com/file/d/${file.id}/preview`;
-        modalVideo.innerHTML = `<iframe src="${videoUrl}" width="100%" height="100%" style="border:none; min-height:60vh;" allow="autoplay"></iframe>`;
+        modalVideo.innerHTML = `<iframe
+            src="${videoUrl}"
+            width="100%"
+            height="100%"
+            style="border:none; display:block; flex:1;"
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowfullscreen
+            webkitallowfullscreen
+            mozallowfullscreen
+        ></iframe>`;
     } else {
+        modal.classList.remove('video-mode');
         modalVideo.style.display = 'none';
         modalImage.style.display = 'block';
         modalImage.src = '';
@@ -756,6 +1060,7 @@ async function openMediaModal(file) {
 
 function closeMediaModal() {
     modal.classList.remove('active');
+    modal.classList.remove('video-mode');
     document.body.style.overflow = 'auto';
     modalImage.src = '';
     modalVideo.innerHTML = '';
@@ -782,10 +1087,21 @@ closeModal.addEventListener('click', closeMediaModal);
 modal.querySelector('.modal-overlay').addEventListener('click', closeMediaModal);
 
 document.addEventListener('keydown', (e) => {
+    if (revistaModal.classList.contains('active')) {
+        if (e.key === 'Escape') closeRevistaReader();
+        else if (e.key === 'ArrowLeft') goToPreviousRevistaPage();
+        else if (e.key === 'ArrowRight') goToNextRevistaPage();
+        return;
+    }
+
     if (e.key === 'Escape' && modal.classList.contains('active')) {
         closeMediaModal();
     }
 });
+
+revistaZonaPrev.addEventListener('click', goToPreviousRevistaPage);
+revistaZonaNext.addEventListener('click', goToNextRevistaPage);
+revistaModalClose.addEventListener('click', closeRevistaReader);
 
 document.querySelectorAll('.category-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -805,14 +1121,56 @@ document.getElementById('brandLogo').addEventListener('click', () => {
     showView('home');
 });
 
+function openMobileMenu() {
+    mobileMenu.classList.add('open');
+    hamburgerBtn.classList.add('open');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeMobileMenu() {
+    mobileMenu.classList.remove('open');
+    hamburgerBtn.classList.remove('open');
+    document.body.style.overflow = '';
+}
+
 function setActiveNavLink(category) {
     document.querySelectorAll('.nav-link').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-category') === category);
+    });
+    document.querySelectorAll('.mobile-nav-link').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-category') === category);
     });
     document.querySelectorAll('.category-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-category') === category);
     });
 }
+
+nosotrosBtn.addEventListener('click', () => {
+    nosotrosModal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+});
+
+nosotrosClose.addEventListener('click', () => {
+    nosotrosModal.classList.remove('active');
+    document.body.style.overflow = '';
+});
+
+nosotrosOverlay.addEventListener('click', () => {
+    nosotrosModal.classList.remove('active');
+    document.body.style.overflow = '';
+});
+
+hamburgerBtn.addEventListener('click', openMobileMenu);
+mobileMenuClose.addEventListener('click', closeMobileMenu);
+mobileMenuBg.addEventListener('click', closeMobileMenu);
+
+document.querySelectorAll('.mobile-nav-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const category = btn.getAttribute('data-category');
+        closeMobileMenu();
+        showView(category);
+    });
+});
 
 document.getElementById('carouselPrev').addEventListener('click', () => {
     clearInterval(carouselTimer);

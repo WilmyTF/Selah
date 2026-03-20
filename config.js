@@ -11,5 +11,10 @@ const FOLDER_CONFIG = {
         name: 'Videos',
         folderId: null,
         subcategories: {}
+    },
+    revista: {
+        name: 'Revista Digital',
+        folderId: null,
+        subcategories: {}
     }
 };
